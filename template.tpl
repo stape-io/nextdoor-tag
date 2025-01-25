@@ -811,7 +811,7 @@ function addServerData(eventData, mappedData) {
   mappedData.action_source = data.eventConversionType;
   mappedData.client_id = data.clientId;
   mappedData.delivery_optimization = true;
-  mappedData.partner_id = 'stape';
+  mappedData.partner_id = 'stapeio_gtm';
 
   if (data.testEvent) mappedData.testEvent = data.testEvent;
   else if (eventData.testEvent) mappedData.testEvent = eventData.testEvent;

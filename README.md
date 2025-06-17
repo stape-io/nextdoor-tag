@@ -10,8 +10,8 @@ Nextdoor conversion API tag for Google Tag Manager server container allows sendi
 
 Nextdoor CAPI tag automatically normalized and hashed with lowercase hex SHA256 format. All user parameters (plain text email, mobile identifier, IP address, and phone number).
 
-Tag supports event deduplication.
+The tag supports event deduplication.
 
 ## Open Source
 
-Nextdoor Tag for GTM Server Side is developing and maintained by [Stape Team](https://stape.io/) under the Apache 2.0 license.
+The **Nextdoor Tag for GTM Server Side** is developed and maintained by [Stape Team](https://stape.io/) under the Apache 2.0 license.

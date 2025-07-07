@@ -1,6 +1,8 @@
 homepage: "https://stape.io/"
 documentation: "https://github.com/stape-io/nextdoor-tag"
 versions:
+  - sha: 7164967d587fe488ebf6a43714aeb765394213ac
+    changeNotes: Update parameters list.
   - sha: 36d7ae37adc353368606eed7383d23d863ae3b89
     changeNotes: Update partner ID.
   - sha: 7ce3d1194e82fd27f1cdacbda50ef39c6bfdc8bb

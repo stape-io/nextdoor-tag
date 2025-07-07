@@ -182,25 +182,15 @@ ___TEMPLATE_PARAMETERS___
   {
     "type": "TEXT",
     "name": "pixelId",
-    "displayName": "Pixel ID",
-    "simpleValueType": true,
-    "valueValidators": [
-      {
-        "type": "NON_EMPTY"
-      }
-    ]
+    "displayName": "Pixel ID / Data Source ID",
+    "simpleValueType": true
   },
   {
     "type": "TEXT",
     "name": "clientId",
     "displayName": "Client ID",
     "simpleValueType": true,
-    "help": "NAM Advertiser ID",
-    "valueValidators": [
-      {
-        "type": "NON_EMPTY"
-      }
-    ]
+    "help": "NAM Advertiser ID"
   },
   {
     "type": "TEXT",
@@ -287,16 +277,28 @@ ___TEMPLATE_PARAMETERS___
                 "displayValue": "Action Source URL"
               },
               {
-                "value": "delivery_optimization",
-                "displayValue": "Delivery Optimization"
-              },
-              {
                 "value": "event_timezone",
                 "displayValue": "Event Timezone"
               },
               {
                 "value": "event_time",
-                "displayValue": "Event Time"
+                "displayValue": "Event Time (ISO 8601 format)"
+              },
+              {
+                "value": "event_time_epoch",
+                "displayValue": "Event Time Epoch (Unix timestamp in seconds)"
+              },
+              {
+                "value": "restricted_data_usage",
+                "displayValue": "Restricted Data Usage"
+              },
+              {
+                "value": "restricted_data_usage_country",
+                "displayValue": "Restricted Data Usage Country"
+              },
+              {
+                "value": "restricted_data_usage_state",
+                "displayValue": "Restricted Data Usage State"
               }
             ],
             "isUnique": true,
@@ -361,8 +363,16 @@ ___TEMPLATE_PARAMETERS___
                 "displayValue": "IP Address"
               },
               {
+                "value": "client_user_agent",
+                "displayValue": "User Agent"
+              },
+              {
                 "value": "click_id",
                 "displayValue": "Click ID"
+              },
+              {
+                "value": "external_id",
+                "displayValue": "External ID"
               },
               {
                 "value": "first_name",
@@ -395,6 +405,10 @@ ___TEMPLATE_PARAMETERS___
               {
                 "value": "date_of_birth",
                 "displayValue": "Date Of Birth"
+              },
+              {
+                "value": "gender",
+                "displayValue": "Gender (f or m)"
               }
             ]
           },
@@ -560,6 +574,73 @@ ___TEMPLATE_PARAMETERS___
         "defaultValue": "debug"
       }
     ]
+  },
+  {
+    "displayName": "BigQuery Logs Settings",
+    "name": "bigQueryLogsGroup",
+    "groupStyle": "ZIPPY_CLOSED",
+    "type": "GROUP",
+    "subParams": [
+      {
+        "type": "RADIO",
+        "name": "bigQueryLogType",
+        "radioItems": [
+          {
+            "value": "no",
+            "displayValue": "Do not log to BigQuery"
+          },
+          {
+            "value": "always",
+            "displayValue": "Log to BigQuery"
+          }
+        ],
+        "simpleValueType": true,
+        "defaultValue": "no"
+      },
+      {
+        "type": "GROUP",
+        "name": "logsBigQueryConfigGroup",
+        "groupStyle": "NO_ZIPPY",
+        "subParams": [
+          {
+            "type": "TEXT",
+            "name": "logBigQueryProjectId",
+            "displayName": "BigQuery Project ID",
+            "simpleValueType": true,
+            "help": "Optional.  \u003cbr\u003e\u003cbr\u003e  If omitted, it will be retrieved from the environment variable \u003cI\u003eGOOGLE_CLOUD_PROJECT\u003c/i\u003e where the server container is running. If the server container is running on Google Cloud, \u003cI\u003eGOOGLE_CLOUD_PROJECT\u003c/i\u003e will already be set to the Google Cloud project\u0027s ID."
+          },
+          {
+            "type": "TEXT",
+            "name": "logBigQueryDatasetId",
+            "displayName": "BigQuery Dataset ID",
+            "simpleValueType": true,
+            "valueValidators": [
+              {
+                "type": "NON_EMPTY"
+              }
+            ]
+          },
+          {
+            "type": "TEXT",
+            "name": "logBigQueryTableId",
+            "displayName": "BigQuery Table ID",
+            "simpleValueType": true,
+            "valueValidators": [
+              {
+                "type": "NON_EMPTY"
+              }
+            ]
+          }
+        ],
+        "enablingConditions": [
+          {
+            "paramName": "bigQueryLogType",
+            "paramValue": "always",
+            "type": "EQUALS"
+          }
+        ]
+      }
+    ]
   }
 ]
 
@@ -576,24 +657,27 @@ const getContainerVersion = require('getContainerVersion');
 const logToConsole = require('logToConsole');
 const sha256Sync = require('sha256Sync');
 const makeString = require('makeString');
+const makeInteger = require('makeInteger');
 const getRequestHeader = require('getRequestHeader');
 const getType = require('getType');
 const Math = require('Math');
 const parseUrl = require('parseUrl');
 const makeNumber = require('makeNumber');
+const BigQuery = require('BigQuery');
+const Object = require('Object');
 
-const containerVersion = getContainerVersion();
-const isDebug = containerVersion.debugMode;
-const isLoggingEnabled = determinateIsLoggingEnabled();
+/*==============================================================================
+==============================================================================*/
+
 const traceId = getRequestHeader('trace-id');
 
 const eventData = getAllEventData();
-const url = eventData.page_location || getRequestHeader('referer');
 
 if (!isConsentGivenOrNotRequired()) {
   return data.gtmOnSuccess();
 }
 
+const url = eventData.page_location || getRequestHeader('referer');
 if (url && url.lastIndexOf('https://gtm-msr.appspot.com/', 0) === 0) {
   return data.gtmOnSuccess();
 }
@@ -602,23 +686,27 @@ const commonCookie = eventData.common_cookie || {};
 
 sendTrackRequest(mapEvent(eventData, data));
 
+if (data.useOptimisticScenario) {
+  data.gtmOnSuccess();
+}
+
+/*==============================================================================
+  Vendor related functions
+==============================================================================*/
+
 function sendTrackRequest(mappedEvent) {
   const postBody = mappedEvent;
   const postUrl = getPostUrl();
 
-  if (isLoggingEnabled) {
-    logToConsole(
-      JSON.stringify({
-        Name: 'Nextdoor',
-        Type: 'Request',
-        TraceId: traceId,
-        EventName: mappedEvent.event_name,
-        RequestMethod: 'POST',
-        RequestUrl: postUrl,
-        RequestBody: postBody
-      })
-    );
-  }
+  log({
+    Name: 'Nextdoor',
+    Type: 'Request',
+    TraceId: traceId,
+    EventName: mappedEvent.event_name,
+    RequestMethod: 'POST',
+    RequestUrl: postUrl,
+    RequestBody: postBody
+  });
 
   const cookieOptions = {
     domain: 'auto',
@@ -636,19 +724,16 @@ function sendTrackRequest(mappedEvent) {
   sendHttpRequest(
     postUrl,
     (statusCode, headers, body) => {
-      if (isLoggingEnabled) {
-        logToConsole(
-          JSON.stringify({
-            Name: 'Nextdoor',
-            Type: 'Response',
-            TraceId: traceId,
-            EventName: mappedEvent.event_name,
-            ResponseStatusCode: statusCode,
-            ResponseHeaders: headers,
-            ResponseBody: body
-          })
-        );
-      }
+      log({
+        Name: 'Nextdoor',
+        Type: 'Response',
+        TraceId: traceId,
+        EventName: mappedEvent.event_name,
+        ResponseStatusCode: statusCode,
+        ResponseHeaders: headers,
+        ResponseBody: body
+      });
+
       if (!data.useOptimisticScenario) {
         if (statusCode >= 200 && statusCode < 400) {
           data.gtmOnSuccess();
@@ -659,18 +744,14 @@ function sendTrackRequest(mappedEvent) {
     },
     {
       headers: {
-        'authorization': 'Bearer ' + data.accessToken,
+        authorization: 'Bearer ' + data.accessToken,
         'content-type': 'application/json',
-        'accept': 'application/json'
+        accept: 'application/json'
       },
       method: 'POST'
     },
     JSON.stringify(postBody)
   );
-}
-
-if (data.useOptimisticScenario) {
-  data.gtmOnSuccess();
 }
 
 function getPostUrl() {
@@ -754,16 +835,20 @@ function addCustomData(eventData, mappedData) {
   if (eventData.currency) mappedData.custom.currency = eventData.currency;
   else if (currencyFromItems) mappedData.custom.currency = currencyFromItems;
 
-  if (eventData['x-ga-mp1-ev'] && mappedData.custom.currency) mappedData.custom.order_value = mappedData.custom.currency + eventData['x-ga-mp1-ev'];
-  else if (eventData['x-ga-mp1-tr'] && mappedData.custom.currency) mappedData.custom.order_value = mappedData.custom.currency + eventData['x-ga-mp1-tr'];
-  else if (eventData.value && mappedData.custom.currency) mappedData.custom.order_value = mappedData.custom.currency + eventData.value;
+  if (eventData['x-ga-mp1-ev'] && mappedData.custom.currency)
+    mappedData.custom.order_value = mappedData.custom.currency + eventData['x-ga-mp1-ev'];
+  else if (eventData['x-ga-mp1-tr'] && mappedData.custom.currency)
+    mappedData.custom.order_value = mappedData.custom.currency + eventData['x-ga-mp1-tr'];
+  else if (eventData.value && mappedData.custom.currency)
+    mappedData.custom.order_value = mappedData.custom.currency + eventData.value;
 
   if (eventData.search_term) mappedData.custom.search_string = eventData.search_term;
   if (eventData.transaction_id) mappedData.custom.order_id = eventData.transaction_id;
 
   if (mappedData.event_name === 'purchase') {
     let currency = mappedData.custom.currency || 'USD';
-    if (!mappedData.custom.order_value) mappedData.custom.order_value = currency + (valueFromItems ? valueFromItems : 0);
+    if (!mappedData.custom.order_value)
+      mappedData.custom.order_value = currency + (valueFromItems ? valueFromItems : 0);
   }
 
   if (data.customDataList) {
@@ -807,24 +892,37 @@ function addAppData(eventData, mappedData) {
 
 function addServerData(eventData, mappedData) {
   mappedData.event_name = getEventName(eventData, data);
-  mappedData.event_time = convertTimestampToISO(getTimestampMillis());
+  const timestampInMillis = getTimestampMillis();
+  mappedData.event_time = convertTimestampToISO(timestampInMillis);
+  mappedData.event_time_epoch = makeInteger(timestampInMillis / 1000);
   mappedData.action_source = data.eventConversionType;
+  mappedData.data_source_id = data.pixelId;
   mappedData.client_id = data.clientId;
-  mappedData.delivery_optimization = true;
   mappedData.partner_id = 'stapeio_gtm';
 
   if (data.testEvent) mappedData.testEvent = data.testEvent;
   else if (eventData.testEvent) mappedData.testEvent = eventData.testEvent;
 
-  if (data.eventConversionType === 'website') mappedData.action_source_url = eventData.page_location || getRequestHeader('referer');
+  if (data.eventConversionType === 'website')
+    mappedData.action_source_url = eventData.page_location || getRequestHeader('referer');
 
   const eventId = eventData.event_id || eventData.transaction_id;
   if (eventId) mappedData.event_id = eventId;
 
   if (data.serverDataList) {
+    const restrictedDatUsageNames = [
+      'restricted_data_usage',
+      'restricted_data_usage_country',
+      'restricted_data_usage_state'
+    ];
     data.serverDataList.forEach((d) => {
+      if (d.name === 'delivery_optimization') return; // Field removed from UI but may still exist in unsynced tags.
       if (isValidValue(d.value)) {
-        mappedData[d.name] = d.value;
+        if (restrictedDatUsageNames.indexOf(d.name) !== -1) {
+          mappedData[d.name] = makeInteger(d.value);
+        } else {
+          mappedData[d.name] = d.value;
+        }
       }
     });
   }
@@ -832,34 +930,25 @@ function addServerData(eventData, mappedData) {
   return mappedData;
 }
 
-function isHashed(value) {
-  if (!value) {
-    return false;
-  }
-
-  return makeString(value).match('^[A-Fa-f0-9]{64}$') !== null;
-}
-
 function hashData(value) {
-  if (!value) {
-    return value;
-  }
+  if (!value) return value;
 
   const type = getType(value);
 
-  if (type === 'undefined' || value === 'undefined') {
-    return undefined;
+  if (value === 'undefined' || value === 'null') return undefined;
+
+  if (type === 'array') {
+    return value.map((val) => hashData(val));
   }
 
   if (type === 'object') {
-    return value.map((val) => {
-      return hashData(val);
-    });
+    return Object.keys(value).reduce((acc, val) => {
+      acc[val] = hashData(value[val]);
+      return acc;
+    }, {});
   }
 
-  if (isHashed(value)) {
-    return value;
-  }
+  if (isHashed(value)) return value;
 
   return sha256Sync(makeString(value).trim().toLowerCase(), {
     outputEncoding: 'hex'
@@ -867,7 +956,20 @@ function hashData(value) {
 }
 
 function hashDataIfNeeded(mappedData) {
-  const fieldsToHash = ['email', 'phone_number', 'first_name', 'last_name', 'date_of_birth', 'street_address', 'city', 'state', 'zip_code', 'country'];
+  const fieldsToHash = [
+    'email',
+    'phone_number',
+    'first_name',
+    'last_name',
+    'date_of_birth',
+    'street_address',
+    'city',
+    'state',
+    'zip_code',
+    'country',
+    'gender',
+    'external_id'
+  ];
   for (let key in mappedData.customer) {
     if (fieldsToHash.indexOf(key) !== -1) {
       mappedData.customer[key] = hashData(mappedData.customer[key]);
@@ -877,8 +979,13 @@ function hashDataIfNeeded(mappedData) {
 }
 
 function addUserData(eventData, mappedData) {
-  let user_data = eventData.user_data || {};
+  const user_data = eventData.user_data || {};
+
   let address = user_data.address || {};
+  const addressType = getType(user_data.address);
+  if (addressType === 'object' || addressType === 'array') {
+    address = user_data.address[0] || user_data.address;
+  }
 
   const click_id = getClickId();
   if (click_id) mappedData.customer.click_id = click_id;
@@ -888,21 +995,25 @@ function addUserData(eventData, mappedData) {
   if (eventData.email) mappedData.customer.email = eventData.email;
   else if (user_data.email_address) mappedData.customer.email = user_data.email_address;
   else if (user_data.email) mappedData.customer.email = user_data.email;
+  else if (user_data.sha256_email_address) mappedData.customer.email = user_data.sha256_email_address;
 
   if (eventData.phone) mappedData.customer.phone_number = eventData.phone;
   else if (user_data.phone_number) mappedData.customer.phone_number = user_data.phone_number;
+  else if (user_data.sha256_phone_number) mappedData.customer.phone_number = user_data.sha256_phone_number;
 
   if (eventData.lastName) mappedData.customer.ln = eventData.lastName;
   else if (eventData.LastName) mappedData.customer.ln = eventData.LastName;
   else if (eventData.nameLast) mappedData.customer.ln = eventData.nameLast;
   else if (eventData.last_name) mappedData.customer.ln = eventData.last_name;
   else if (user_data.last_name) mappedData.customer.ln = user_data.last_name;
+  else if (address.sha256_last_name) mappedData.customer.ln = address.sha256_last_name;
 
   if (eventData.firstName) mappedData.customer.fn = eventData.firstName;
   else if (eventData.FirstName) mappedData.customer.fn = eventData.FirstName;
   else if (eventData.nameFirst) mappedData.customer.fn = eventData.nameFirst;
   else if (eventData.first_name) mappedData.customer.fn = eventData.first_name;
   else if (user_data.first_name) mappedData.customer.fn = user_data.first_name;
+  else if (address.sha256_first_name) mappedData.customer.fn = address.sha256_first_name;
 
   if (eventData.date_of_birth) mappedData.customer.date_of_birth = eventData.date_of_birth;
 
@@ -928,9 +1039,15 @@ function addUserData(eventData, mappedData) {
   else if (user_data.country) mappedData.customer.country = user_data.country;
   else if (address.country) mappedData.customer.country = address.country;
 
+  if (eventData.external_id) mappedData.customer.external_id = eventData.external_id;
+  else if (eventData.user_id) mappedData.customer.external_id = eventData.user_id;
+  else if (eventData.userId) mappedData.customer.external_id = eventData.userId;
+
   if (eventData.ip_override) {
     mappedData.customer.client_ip_address = eventData.ip_override.split(' ').join('').split(',')[0];
   }
+
+  if (eventData.user_agent) mappedData.customer.client_user_agent = eventData.user_agent;
 
   if (data.userDataList) {
     data.userDataList.forEach((d) => {
@@ -943,22 +1060,6 @@ function addUserData(eventData, mappedData) {
   return mappedData;
 }
 
-function determinateIsLoggingEnabled() {
-  if (!data.logType) {
-    return isDebug;
-  }
-
-  if (data.logType === 'no') {
-    return false;
-  }
-
-  if (data.logType === 'debug') {
-    return isDebug;
-  }
-
-  return data.logType === 'always';
-}
-
 function getClickId() {
   if (eventData.click_id) return eventData.click_id;
   const parsedUrl = parseUrl(url);
@@ -968,17 +1069,9 @@ function getClickId() {
   return getCookieValues('_ndclid')[0] || commonCookie._ndclid;
 }
 
-function isConsentGivenOrNotRequired() {
-  if (data.adStorageConsent !== 'required') return true;
-  if (eventData.consent_state) return !!eventData.consent_state.ad_storage;
-  const xGaGcs = eventData['x-ga-gcs'] || ''; // x-ga-gcs is a string like "G110"
-  return xGaGcs[2] === '1';
-}
-
-function isValidValue(value) {
-  const valueType = getType(value);
-  return valueType !== 'null' && valueType !== 'undefined' && value !== '';
-}
+/*==============================================================================
+  Helpers
+==============================================================================*/
 
 function convertTimestampToISO(timestamp) {
   const leapYear = [31, 29, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31];
@@ -1001,8 +1094,8 @@ function convertTimestampToISO(timestamp) {
   timestamp = timestamp % fourYearsInMs;
 
   while (true) {
-    let isLeapYear = year % 4 === 0;
-    let nextTimestamp = timestamp - daysToMs(isLeapYear ? 366 : 365);
+    const isLeapYear = year % 4 === 0;
+    const nextTimestamp = timestamp - daysToMs(isLeapYear ? 366 : 365);
     if (nextTimestamp < 0) {
       break;
     }
@@ -1014,7 +1107,7 @@ function convertTimestampToISO(timestamp) {
 
   let month = 0;
   for (let i = 0; i < daysByMonth.length; i++) {
-    let msInThisMonth = daysToMs(daysByMonth[i]);
+    const msInThisMonth = daysToMs(daysByMonth[i]);
     if (timestamp > msInThisMonth) {
       timestamp = timestamp - msInThisMonth;
     } else {
@@ -1022,15 +1115,14 @@ function convertTimestampToISO(timestamp) {
       break;
     }
   }
-  let date = Math.ceil(timestamp / daysToMs(1));
+  const date = Math.ceil(timestamp / daysToMs(1));
   timestamp = timestamp - daysToMs(date - 1);
-  let hours = Math.floor(timestamp / hoursToMs(1));
+  const hours = Math.floor(timestamp / hoursToMs(1));
   timestamp = timestamp - hoursToMs(hours);
-  let minutes = Math.floor(timestamp / minToMs(1));
+  const minutes = Math.floor(timestamp / minToMs(1));
   timestamp = timestamp - minToMs(minutes);
-  let sec = Math.floor(timestamp / secToMs(1));
+  const sec = Math.floor(timestamp / secToMs(1));
   timestamp = timestamp - secToMs(sec);
-  let milliSeconds = timestamp;
 
   return (
     year +
@@ -1046,6 +1138,110 @@ function convertTimestampToISO(timestamp) {
     padStart(sec, 2) +
     'Z'
   );
+}
+
+function isHashed(value) {
+  if (!value) {
+    return false;
+  }
+
+  return makeString(value).match('^[A-Fa-f0-9]{64}$') !== null;
+}
+
+function isValidValue(value) {
+  const valueType = getType(value);
+  return valueType !== 'null' && valueType !== 'undefined' && value !== '';
+}
+
+function isConsentGivenOrNotRequired() {
+  if (data.adStorageConsent !== 'required') return true;
+  if (eventData.consent_state) return !!eventData.consent_state.ad_storage;
+  const xGaGcs = eventData['x-ga-gcs'] || ''; // x-ga-gcs is a string like "G110"
+  return xGaGcs[2] === '1';
+}
+
+function log(rawDataToLog) {
+  const logDestinationsHandlers = {};
+  if (determinateIsLoggingEnabled()) logDestinationsHandlers.console = logConsole;
+  if (determinateIsLoggingEnabledForBigQuery()) logDestinationsHandlers.bigQuery = logToBigQuery;
+
+  const keyMappings = {
+    // No transformation for Console is needed.
+    bigQuery: {
+      Name: 'tag_name',
+      Type: 'type',
+      TraceId: 'trace_id',
+      EventName: 'event_name',
+      RequestMethod: 'request_method',
+      RequestUrl: 'request_url',
+      RequestBody: 'request_body',
+      ResponseStatusCode: 'response_status_code',
+      ResponseHeaders: 'response_headers',
+      ResponseBody: 'response_body'
+    }
+  };
+
+  for (const logDestination in logDestinationsHandlers) {
+    const handler = logDestinationsHandlers[logDestination];
+    if (!handler) continue;
+
+    const mapping = keyMappings[logDestination];
+    const dataToLog = mapping ? {} : rawDataToLog;
+
+    if (mapping) {
+      for (const key in rawDataToLog) {
+        const mappedKey = mapping[key] || key;
+        dataToLog[mappedKey] = rawDataToLog[key];
+      }
+    }
+
+    handler(dataToLog);
+  }
+}
+
+function logConsole(dataToLog) {
+  logToConsole(JSON.stringify(dataToLog));
+}
+
+function logToBigQuery(dataToLog) {
+  const connectionInfo = {
+    projectId: data.logBigQueryProjectId,
+    datasetId: data.logBigQueryDatasetId,
+    tableId: data.logBigQueryTableId
+  };
+
+  dataToLog.timestamp = getTimestampMillis();
+
+  ['request_body', 'response_headers', 'response_body'].forEach((p) => {
+    dataToLog[p] = JSON.stringify(dataToLog[p]);
+  });
+
+  const bigquery = getType(BigQuery) === 'function' ? BigQuery() /* Only during Unit Tests */ : BigQuery;
+  bigquery.insert(connectionInfo, [dataToLog], { ignoreUnknownValues: true });
+}
+
+function determinateIsLoggingEnabled() {
+  const containerVersion = getContainerVersion();
+  const isDebug = !!(containerVersion && (containerVersion.debugMode || containerVersion.previewMode));
+
+  if (!data.logType) {
+    return isDebug;
+  }
+
+  if (data.logType === 'no') {
+    return false;
+  }
+
+  if (data.logType === 'debug') {
+    return isDebug;
+  }
+
+  return data.logType === 'always';
+}
+
+function determinateIsLoggingEnabledForBigQuery() {
+  if (data.bigQueryLogType === 'no') return false;
+  return data.bigQueryLogType === 'always';
 }
 
 
@@ -1318,13 +1514,167 @@ ___SERVER_PERMISSIONS___
       "isEditedByUser": true
     },
     "isRequired": true
+  },
+  {
+    "instance": {
+      "key": {
+        "publicId": "access_bigquery",
+        "versionId": "1"
+      },
+      "param": [
+        {
+          "key": "allowedTables",
+          "value": {
+            "type": 2,
+            "listItem": [
+              {
+                "type": 3,
+                "mapKey": [
+                  {
+                    "type": 1,
+                    "string": "projectId"
+                  },
+                  {
+                    "type": 1,
+                    "string": "datasetId"
+                  },
+                  {
+                    "type": 1,
+                    "string": "tableId"
+                  },
+                  {
+                    "type": 1,
+                    "string": "operation"
+                  }
+                ],
+                "mapValue": [
+                  {
+                    "type": 1,
+                    "string": "*"
+                  },
+                  {
+                    "type": 1,
+                    "string": "*"
+                  },
+                  {
+                    "type": 1,
+                    "string": "*"
+                  },
+                  {
+                    "type": 1,
+                    "string": "write"
+                  }
+                ]
+              }
+            ]
+          }
+        }
+      ]
+    },
+    "clientAnnotations": {
+      "isEditedByUser": true
+    },
+    "isRequired": true
   }
 ]
 
 
 ___TESTS___
 
-scenarios: []
+scenarios:
+- name: Should log to console, if the 'Always log to console' option is selected
+  code: "mockData.logType = 'always';\n\nconst expectedDebugMode = true;\nmock('getContainerVersion',\
+    \ () => {\n  return {\n    debugMode: expectedDebugMode\n  };\n}); \n\nmock('logToConsole',\
+    \ (logData) => {\n  const parsedLogData = JSON.parse(logData);\n  requiredConsoleKeys.forEach(p\
+    \ => assertThat(parsedLogData[p]).isDefined());\n});\n\nrunCode(mockData);\n\n\
+    assertApi('logToConsole').wasCalled();\nassertApi('gtmOnSuccess').wasCalled();\n\
+    assertApi('gtmOnFailure').wasNotCalled();"
+- name: Should log to console, if the 'Log during debug and preview' option is selected
+    AND is on preview mode
+  code: |-
+    mockData.logType = 'debug';
+
+    const expectedDebugMode = true;
+    mock('getContainerVersion', () => {
+      return {
+        debugMode: expectedDebugMode
+      };
+    });
+
+    mock('logToConsole', (logData) => {
+      const parsedLogData = JSON.parse(logData);
+      requiredConsoleKeys.forEach(p => assertThat(parsedLogData[p]).isDefined());
+    });
+
+    runCode(mockData);
+
+    assertApi('logToConsole').wasCalled();
+    assertApi('gtmOnSuccess').wasCalled();
+    assertApi('gtmOnFailure').wasNotCalled();
+- name: Should NOT log to console, if the 'Log during debug and preview' option is
+    selected AND is NOT on preview mode
+  code: "mockData.logType = 'debug';\n\nconst expectedDebugMode = false;\nmock('getContainerVersion',\
+    \ () => {\n  return {\n    debugMode: expectedDebugMode\n  };\n}); \n\nrunCode(mockData);\n\
+    \nassertApi('logToConsole').wasNotCalled();\nassertApi('gtmOnSuccess').wasCalled();\n\
+    assertApi('gtmOnFailure').wasNotCalled();"
+- name: Should NOT log to console, if the 'Do not log' option is selected
+  code: |-
+    mockData.logType = 'no';
+
+    runCode(mockData);
+
+    assertApi('logToConsole').wasNotCalled();
+    assertApi('gtmOnSuccess').wasCalled();
+    assertApi('gtmOnFailure').wasNotCalled();
+- name: Should log to BQ, if the 'Log to BigQuery' option is selected
+  code: "mockData.bigQueryLogType = 'always';\n\n// assertApi doesn't work for 'BigQuery.insert()'.\n\
+    // Ref: https://gtm-gear.com/posts/gtm-templates-testing/\nmock('BigQuery', ()\
+    \ => {\n  return { \n    insert: (connectionInfo, rows, options) => { \n     \
+    \ assertThat(connectionInfo).isDefined();\n      assertThat(rows).isArray();\n\
+    \      assertThat(rows).hasLength(1);\n      requiredBqKeys.forEach(p => assertThat(rows[0][p]).isDefined());\n\
+    \      assertThat(options).isEqualTo(expectedBqOptions);\n      return Promise.create((resolve,\
+    \ reject) => {\n        resolve();\n      });\n    }\n  };\n});\n\nrunCode(mockData);\n\
+    \nassertApi('gtmOnSuccess').wasCalled();\nassertApi('gtmOnFailure').wasNotCalled();"
+- name: Should NOT log to BQ, if the 'Do not log to BigQuery' option is selected
+  code: "mockData.bigQueryLogType = 'no';\n\n// assertApi doesn't work for 'BigQuery.insert()'.\n\
+    // Ref: https://gtm-gear.com/posts/gtm-templates-testing/\nmock('BigQuery', ()\
+    \ => {\n  return { \n    insert: (connectionInfo, rows, options) => { \n     \
+    \ fail('BigQuery.insert should not have been called.');\n      return Promise.create((resolve,\
+    \ reject) => {\n        resolve();\n      });\n    }\n  };\n});\n\nrunCode(mockData);\n\
+    \nassertApi('gtmOnSuccess').wasCalled();\nassertApi('gtmOnFailure').wasNotCalled();"
+setup: |-
+  const Promise = require('Promise');
+  const JSON = require('JSON');
+
+  const expectedBigQuerySettings = {
+    logBigQueryProjectId: 'logBigQueryProjectId',
+    logBigQueryDatasetId: 'logBigQueryDatasetId',
+    logBigQueryTableId: 'logBigQueryTableId'
+  };
+  const requiredConsoleKeys = ['Type', 'TraceId', 'Name'];
+  const requiredBqKeys = ['timestamp', 'type', 'trace_id', 'tag_name'];
+  const expectedBqOptions = { ignoreUnknownValues: true };
+
+  const mockData = {
+    eventType: 'standard',
+    eventNameStandard: 'conversion',
+    eventConversionType: 'website',
+    pixelId: 'pixelId',
+    dataSourceId: 'dataSourceId',
+    clientId: 'clientId',
+    accessToken: 'accessToken',
+    logBigQueryProjectId: expectedBigQuerySettings.logBigQueryProjectId,
+    logBigQueryDatasetId: expectedBigQuerySettings.logBigQueryDatasetId,
+    logBigQueryTableId: expectedBigQuerySettings.logBigQueryTableId
+  };
+
+  mock('sendHttpRequest', (requestUrl, callback, requestOptions, requestBody) => {
+    callback(200);
+  });
+
+  mock('getRequestHeader', (header) => {
+    if (header === 'trace-id') return 'expectedTraceId';
+  });
 
 
 ___NOTES___

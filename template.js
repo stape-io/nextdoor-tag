@@ -1,21 +1,21 @@
-const getAllEventData = require('getAllEventData');
-const JSON = require('JSON');
-const sendHttpRequest = require('sendHttpRequest');
-const getTimestampMillis = require('getTimestampMillis');
-const setCookie = require('setCookie');
-const getCookieValues = require('getCookieValues');
-const getContainerVersion = require('getContainerVersion');
-const logToConsole = require('logToConsole');
-const sha256Sync = require('sha256Sync');
-const makeString = require('makeString');
-const makeInteger = require('makeInteger');
-const getRequestHeader = require('getRequestHeader');
-const getType = require('getType');
-const Math = require('Math');
-const parseUrl = require('parseUrl');
-const makeNumber = require('makeNumber');
 const BigQuery = require('BigQuery');
+const JSON = require('JSON');
+const Math = require('Math');
 const Object = require('Object');
+const getAllEventData = require('getAllEventData');
+const getContainerVersion = require('getContainerVersion');
+const getCookieValues = require('getCookieValues');
+const getRequestHeader = require('getRequestHeader');
+const getTimestampMillis = require('getTimestampMillis');
+const getType = require('getType');
+const logToConsole = require('logToConsole');
+const makeInteger = require('makeInteger');
+const makeNumber = require('makeNumber');
+const makeString = require('makeString');
+const parseUrl = require('parseUrl');
+const sendHttpRequest = require('sendHttpRequest');
+const setCookie = require('setCookie');
+const sha256Sync = require('sha256Sync');
 
 /*==============================================================================
 ==============================================================================*/
@@ -156,8 +156,10 @@ function addCustomData(eventData, mappedData) {
     mappedData.custom.num_items = eventData.items.length;
 
     if (!eventData.items[1]) {
-      if (eventData.items[0].item_name) mappedData.custom.content_name = eventData.items[0].item_name;
-      if (eventData.items[0].item_category) mappedData.custom.content_category = eventData.items[0].item_category;
+      if (eventData.items[0].item_name)
+        mappedData.custom.content_name = eventData.items[0].item_name;
+      if (eventData.items[0].item_category)
+        mappedData.custom.content_category = eventData.items[0].item_category;
       if (eventData.items[0].item_id) mappedData.custom.content_ids = eventData.items[0].item_id;
 
       if (eventData.items[0].price) {
@@ -221,8 +223,10 @@ function addAppData(eventData, mappedData) {
   const appId = data.appId || appData.app_id;
   if (appId) mappedData.app.app_id = appId;
 
-  if (appData.app_tracking_enabled) mappedData.app.app_tracking_enabled = appData.app_tracking_enabled;
-  else if (eventData.app_tracking_enabled) mappedData.app.app_tracking_enabled = eventData.app_tracking_enabled;
+  if (appData.app_tracking_enabled)
+    mappedData.app.app_tracking_enabled = appData.app_tracking_enabled;
+  else if (eventData.app_tracking_enabled)
+    mappedData.app.app_tracking_enabled = eventData.app_tracking_enabled;
 
   if (appData.platform) mappedData.app.platform = appData.platform;
   else if (eventData.platform) mappedData.app.platform = eventData.platform;
@@ -346,11 +350,13 @@ function addUserData(eventData, mappedData) {
   if (eventData.email) mappedData.customer.email = eventData.email;
   else if (user_data.email_address) mappedData.customer.email = user_data.email_address;
   else if (user_data.email) mappedData.customer.email = user_data.email;
-  else if (user_data.sha256_email_address) mappedData.customer.email = user_data.sha256_email_address;
+  else if (user_data.sha256_email_address)
+    mappedData.customer.email = user_data.sha256_email_address;
 
   if (eventData.phone) mappedData.customer.phone_number = eventData.phone;
   else if (user_data.phone_number) mappedData.customer.phone_number = user_data.phone_number;
-  else if (user_data.sha256_phone_number) mappedData.customer.phone_number = user_data.sha256_phone_number;
+  else if (user_data.sha256_phone_number)
+    mappedData.customer.phone_number = user_data.sha256_phone_number;
 
   if (eventData.lastName) mappedData.customer.ln = eventData.lastName;
   else if (eventData.LastName) mappedData.customer.ln = eventData.LastName;
@@ -567,13 +573,17 @@ function logToBigQuery(dataToLog) {
     dataToLog[p] = JSON.stringify(dataToLog[p]);
   });
 
-  const bigquery = getType(BigQuery) === 'function' ? BigQuery() /* Only during Unit Tests */ : BigQuery;
+  const bigquery =
+    getType(BigQuery) === 'function' ? BigQuery() /* Only during Unit Tests */ : BigQuery;
   bigquery.insert(connectionInfo, [dataToLog], { ignoreUnknownValues: true });
 }
 
 function determinateIsLoggingEnabled() {
   const containerVersion = getContainerVersion();
-  const isDebug = !!(containerVersion && (containerVersion.debugMode || containerVersion.previewMode));
+  const isDebug = !!(
+    containerVersion &&
+    (containerVersion.debugMode || containerVersion.previewMode)
+  );
 
   if (!data.logType) {
     return isDebug;

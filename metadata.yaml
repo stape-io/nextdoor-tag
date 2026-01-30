@@ -1,6 +1,8 @@
-homepage: "https://stape.io/"
-documentation: "https://github.com/stape-io/nextdoor-tag"
+homepage: 'https://stape.io/'
+documentation: 'https://github.com/stape-io/nextdoor-tag'
 versions:
+  - sha: 211414dc7d061d088879a9dc995c0c292e17e11d
+    changeNotes: Updated consent section.
   - sha: 7164967d587fe488ebf6a43714aeb765394213ac
     changeNotes: Update parameters list.
   - sha: 36d7ae37adc353368606eed7383d23d863ae3b89

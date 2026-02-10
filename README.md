@@ -12,6 +12,10 @@ Nextdoor CAPI tag automatically normalized and hashed with lowercase hex SHA256 
 
 The tag supports event deduplication.
 
+## Useful links:
+
+- [Step-by-step guide on how to configure Nextdoor Conversions API Tag for Google Tag Manager Server Container](https://stape.io/blog/nextdoor-server-side-tracking)
+
 ## Open Source
 
 The **Nextdoor Tag for GTM Server Side** is developed and maintained by [Stape Team](https://stape.io/) under the Apache 2.0 license.
